@@ -14,32 +14,49 @@ def is_num(data):
 
 data = pl.read_csv("car_price_dataset.csv")
 data[:250].write_csv("car_price_dataset_reduced.csv")
-
+df = pl.DataFrame()
 for i in data:
     if i.dtype.is_numeric():
         mean = i.mean()
         var = i.var()
+        med = i.median()
         covar = data.select(pl.cov(i, i)).item()
+        df = pl.concat(
+            [
+                df,
+                pl.DataFrame(
+                    {"Value": i.name, "Mean": mean, "Variance": var, "Median": med}
+                ),
+            ]
+        )
+        print(df)
+
         # print(i.name, ": ", mean, var, covar)
-print(data["Fuel_Type"].value_counts(), data.columns)
+df.write_csv("df.csv")
+# print(data["Fuel_Type"].value_counts(), data.columns)
+# print(data["Mileage"].sort(descending=True))
+print(data.select(pl.cov(data["Price"], data["Mileage"])))
 
 
-def plot_mean_prices(data, x, name):
-    fig, ax = plt.subplots(figsize=(8, 5), dpi=300)
-    print(data.group_by(x).agg(pl.col("Price").mean()))
+def mean_prices(data, x):
+    print(data.group_by(x).agg(pl.col("Price").mean()).sort("Price"))
 
 
-def plot_variance_prices(data, x, name):
-    fig, ax = plt.subplots(figsize=(8, 5), dpi=300)
-    print(data.group_by(x).agg(pl.col("Price").std()))
+def mean_mileage(data, x):
+    print(data.group_by(x).agg(pl.col("Mileage").mean()).sort("Mileage"))
 
 
-plot_mean_prices(data, "Fuel_Type", "pic")
-plot_mean_prices(data.sort("Year"), "Year", "pic")
-plot_mean_prices(data, "Brand", "pic")
-plot_variance_prices(data, "Fuel_Type", "pic")
-plot_variance_prices(data.sort("Year"), "Year", "pic")
-plot_variance_prices(data, "Brand", "pic")
+def variance_prices(data, x):
+    print(data.group_by(x).agg(pl.col("Price").std()).sort("Price"))
+
+
+# mean_mileage(data, "Year")
+mean_prices(data, "Fuel_Type")
+# mean_prices(data.sort("Year"), "Year")
+# mean_prices(data, "Brand")
+# variance_prices(data, "Fuel_Type")
+# variance_prices(data.sort("Year"), "Year")
+# variance_prices(data, "Brand")
 
 
 def avg_price_increase(data: pl.DataFrame):
@@ -55,17 +72,42 @@ def avg_price_increase(data: pl.DataFrame):
 avg_price_increase(data)
 
 
-def plot_heatmap(data, name):
-    data = data.select(pl.col(pl.Int64))
+def plot_heatmap(data: pl.DataFrame, name):
+    data = data.select(pl.col(pl.Int64, pl.Float64))
     labels = data.columns
     fig, ax = plt.subplots(figsize=(8, 5), dpi=300)
     sns.heatmap(data.corr(), annot=True, yticklabels=labels, xticklabels=labels, ax=ax)
     fig.savefig(f"{name}.png")
 
 
-def plot_boxplot(data, x, y):
+def plot_covar(data: pl.DataFrame):
+    data = data.select(pl.col(pl.Int64, pl.Float64))
+    labels = data.columns
+    cov_matrix = data.to_pandas().cov()
+    log_cov = np.log10(np.abs(cov_matrix) + 1) * np.sign(cov_matrix)
     fig, ax = plt.subplots(figsize=(8, 5), dpi=300)
-    sns.boxplot(x=x, y=y, data=data, hue=x, ax=ax)
+    sns.heatmap(
+        log_cov,
+        annot=True,
+        yticklabels=labels,
+        xticklabels=labels,
+        cmap="magma",
+        ax=ax,
+    )
+    fig.savefig("covar.png")
+
+
+def plot_boxplot(data: pl.DataFrame, x, y, labelsize=10):
+    sorted_order = (
+        data.group_by(x)
+        .agg(pl.col(y).mean())
+        .sort(y)  # Sort brands by mean price
+        .get_column(x)
+        .to_list()
+    )
+    fig, ax = plt.subplots(figsize=(8, 5), dpi=300)
+    sns.violinplot(x=x, y=y, data=data, order=sorted_order, hue=x, ax=ax)
+    ax.tick_params(labelsize=labelsize)
     fig.savefig(f"boxplot {x}.png")
 
 
@@ -96,32 +138,34 @@ def plot_kdeplot(data, x, hue, name):
 
 
 def plot_stacked(data: pl.DataFrame, x, y, z, name):
-    data["Price"] = data.select(pl.col("Price"))
+    # data["Price"] = data.select(pl.col("Price"))
     fig, ax = plt.subplots(figsize=(8, 5), dpi=300)
     sns.lineplot(data, x=x, y=y, hue=z)
     fig.savefig(f"{name}")
 
 
-plot_stacked(data, "Mileage", "Price", "Fuel_Type", "line.png")
+# plot_stacked(data, "Mileage", "Price", "Fuel_Type", "line.png")
 plot_heatmap(data, "heatmap")
-plot_bar(
-    data.group_by("Fuel_Type").agg(pl.col("Price").mean()).sort("Fuel_Type"),
-    "Fuel_Type",
-    "Price",
-    "price_hist",
-)
-plot_bar(
-    data.group_by("Year").agg(pl.col("Price").mean()).sort("Year"),
-    "Year",
-    "Price",
-    "year_bar",
-)
-plot_distplot(data, "Price", "Fuel_Type", "displot")
-plot_kdeplot(data, "Price", "Fuel_Type", "kdeplot")
-plot_scatterplot(data, "Mileage", "Price", "Fuel_Type", "Fuel Type")
-plot_scatterplot(data, "Mileage", "Price", "Year", "Year")
-plot_scatterplot(data, "Mileage", "Price", "Brand", "Brand")
-plot_boxplot(data, "Fuel_Type", "Price")
-plot_boxplot(data, "Owner_Count", "Price")
-plot_boxplot(data, "Brand", "Price")
-plot_boxplot(data, "Doors", "Price")
+plot_covar(data)
+# plot_bar(
+#     data.group_by("Fuel_Type").agg(pl.col("Price").mean()).sort("Fuel_Type"),
+#     "Fuel_Type",
+#     "Price",
+#     "price_hist",
+# )
+# plot_bar(
+#     data.group_by("Year").agg(pl.col("Price").mean()).sort("Year"),
+#     "Year",
+#     "Price",
+#     "year_bar",
+# )
+# plot_distplot(data, "Price", "Fuel_Type", "displot")
+# plot_kdeplot(data, "Price", "Fuel_Type", "kdeplot")
+# plot_scatterplot(data, "Mileage", "Price", "Fuel_Type", "Fuel Type")
+# plot_scatterplot(data, "Mileage", "Price", "Year", "Year")
+# plot_scatterplot(data, "Mileage", "Price", "Brand", "Brand")
+# plot_boxplot(data, "Brand", "Price", "small")
+# plot_boxplot(data, "Fuel_Type", "Price")
+# plot_boxplot(data, "Owner_Count", "Price")
+# plot_boxplot(data, "Engine_Size", "Price", 6)
+# plot_boxplot(data, "Doors", "Price")
